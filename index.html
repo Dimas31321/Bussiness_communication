@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#244c41">
+  <meta name="description" content="Тренажёр по деловым коммуникациям: вопросы, объяснения и экзамен с таймером.">
+  <title>Делком — практикум</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="data/source-tests.js"></script>
+  <script defer src="data/author-tests.js"></script>
+  <script defer src="data/lecture-tests.js"></script>
+  <script defer src="data/past-year.js"></script>
+  <script defer src="data/tests.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Перейти к содержимому</a>
+  <header class="site-header"><a class="brand" href="#home"><span class="logo">дк<span>•</span></span><span>делком<span class="brand-sub">учебный практикум</span></span></a><a href="#guide" class="header-link">Как заниматься <span aria-hidden="true">↗</span></a></header>
+  <div id="storage-warning" class="storage-warning" hidden>Браузер не разрешает сохранять прогресс. В этой вкладке тест работает, но после перезагрузки ответы могут потеряться.</div>
+  <main id="main" tabindex="-1"></main>
+  <footer><span>Деловые коммуникации · подготовка в своём темпе</span><a href="#guide">Об источниках и ответах</a></footer>
+  <dialog id="confirm-dialog"><form method="dialog"><p class="eyebrow">Завершение попытки</p><h2>Сдать тест?</h2><p id="confirm-message"></p><div class="actions"><button value="cancel" class="secondary">Продолжить</button><button id="confirm-submit" value="finish">Сдать и увидеть результат</button></div></form></dialog>
+  <noscript>Для прохождения тестов включите JavaScript в настройках браузера.</noscript>
+</body>
+</html>

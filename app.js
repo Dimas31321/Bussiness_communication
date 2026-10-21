@@ -31,6 +31,12 @@ function validSession(s) {
     s.ids.every(id => s.answers[id] === undefined || (Array.isArray(s.answers[id]) && s.answers[id].every(n => Number.isInteger(n) && n >= 0 && n < questionMap.get(id).options.length)));
 }
 if (!validSession(session)) session = null;
+if (session) {
+  const confirmed = session.confirmed;
+  session.confirmed = Object.fromEntries(session.ids.filter(id =>
+    (confirmed && confirmed[id] === true) || (!confirmed && session.finished)
+  ).map(id => [id, true]));
+}
 function save() {
   try { localStorage.setItem(storageKey, JSON.stringify({ session, history })); }
   catch { storageWarning(); }
@@ -38,7 +44,7 @@ function save() {
 function isCorrect(q, selected = []) {
   return selected.length === q.answer.length && q.answer.every(n => selected.includes(n));
 }
-function answeredCount() { return session.ids.filter(id => session.answers[id]?.length).length; }
+function answeredCount() { return session.ids.filter(id => session.confirmed[id]).length; }
 function questions() { return session.ids.map(id => questionMap.get(id)); }
 function modeName(mode) { return mode === 'exam' ? 'Экзамен' : 'Тренировка'; }
 function linkTo(hash) { if (location.hash === hash) render(); else location.hash = hash; }
@@ -65,13 +71,13 @@ function catalog(category = 'all') {
 function detail(id) {
   const test = tests.find(t => t.id === id);
   if (!test) return notFound();
-  main.innerHTML = `<section class="detail"><a class="back" href="#section/${test.category}">← К вариантам</a><p class="eyebrow">${categories[test.category]?.[0] || 'Практикум'} · ${questionCount(test.questions.length)}</p><h1>${escapeHTML(test.title)}</h1><p class="lead">${escapeHTML(test.description || '')}</p><div class="modes"><article class="mode"><span class="tag">01 / В своём темпе</span><h2>Тренировка</h2><p>Сразу видно, верен ли выбранный ответ. Можно открыть объяснение, поменять выбор и вернуться к любому вопросу. Без таймера.</p><button data-start="${escapeHTML(test.id)}" data-mode="train">Начать тренировку</button></article><article class="mode exam"><span class="tag">02 / Проверка знаний</span><h2>Экзамен</h2><p>${test.minutes} минут на весь вариант. До сдачи ответы можно менять, но подсказок и проверки нет. По окончании времени тест сдаётся автоматически.</p><button data-start="${escapeHTML(test.id)}" data-mode="exam">Начать экзамен · ${test.minutes} мин</button></article></div><div class="notice">Один балл за полностью правильный ответ. В заданиях с несколькими вариантами нужно выбрать все правильные и ни одного лишнего. Пропуск — 0 баллов. Это учебная шкала, не официальная оценка курса.</div>${session && !session.finished ? '<p class="history-note">Новая попытка заменит текущую незавершённую. Её можно продолжить с главной страницы.</p>' : ''}</section>`;
+  main.innerHTML = `<section class="detail"><a class="back" href="#section/${test.category}">← К вариантам</a><p class="eyebrow">${categories[test.category]?.[0] || 'Практикум'} · ${questionCount(test.questions.length)}</p><h1>${escapeHTML(test.title)}</h1><p class="lead">${escapeHTML(test.description || '')}</p><div class="modes"><article class="mode"><span class="tag">01 / В своём темпе</span><h2>Тренировка</h2><p>Выберите ответ и нажмите «Готово» для проверки. После проверки ответ нельзя изменить. Без таймера.</p><button data-start="${escapeHTML(test.id)}" data-mode="train">Начать тренировку</button></article><article class="mode exam"><span class="tag">02 / Проверка знаний</span><h2>Экзамен</h2><p>${test.minutes} минут на весь вариант. Проверка каждого задания — по кнопке «Готово». После проверки ответ нельзя изменить. По окончании времени тест сдаётся автоматически.</p><button data-start="${escapeHTML(test.id)}" data-mode="exam">Начать экзамен · ${test.minutes} мин</button></article></div><div class="notice">Один балл за полностью правильный ответ. В заданиях с несколькими вариантами нужно выбрать все правильные и ни одного лишнего. Пропуск — 0 баллов. Это учебная шкала, не официальная оценка курса.</div>${session && !session.finished ? '<p class="history-note">Новая попытка заменит текущую незавершённую. Её можно продолжить с главной страницы.</p>' : ''}</section>`;
 }
 function start(testId, mode, ids = null) {
   const test = tests.find(t => t.id === testId);
   if (!test) return;
   if (session && !session.finished && !window.confirm('Начать новую попытку? Ответы текущей незавершённой попытки будут заменены.')) return;
-  session = { testId, title: test.title, ids: ids || test.questions.map(q => q.id), mode, index: 0, answers: {}, startedAt: Date.now(), deadline: mode === 'exam' ? Date.now() + test.minutes * 60000 : null, finished: false, retry: !!ids };
+  session = { testId, title: test.title, ids: ids || test.questions.map(q => q.id), mode, index: 0, answers: {}, confirmed: {}, startedAt: Date.now(), deadline: mode === 'exam' ? Date.now() + test.minutes * 60000 : null, finished: false, retry: !!ids };
   save(); showingResultErrors = false; linkTo('#run');
 }
 function explanation(q) {
@@ -80,30 +86,40 @@ function explanation(q) {
 function feedback() {
   const q = questions()[session.index], selected = session.answers[q.id] || [];
   const target = $('#feedback'); if (!target) return;
-  if (session.mode === 'exam' || !selected.length) { target.innerHTML = ''; return; }
+  if (!session.confirmed[q.id]) { target.innerHTML = ''; return; }
   const correct = isCorrect(q, selected);
-  target.innerHTML = `<div class="feedback ${correct ? 'good' : 'bad'}" role="status">${correct ? '✓ Правильно' : '✕ Пока неправильно'}${q.type === 'multiple' ? ' — проверяется весь набор.' : '.'} Можно изменить ответ.</div><details class="explanation"><summary>Показать правильный ответ и объяснение</summary>${explanation(q)}</details>`;
+  target.innerHTML = `<div class="feedback ${correct ? 'good' : 'bad'}" role="status">${correct ? '✓ Правильно' : '✕ Неправильно'}${q.type === 'multiple' ? ' — проверяется весь набор.' : '.'} Ответ зафиксирован, изменить его нельзя.</div><details class="explanation"><summary>Показать правильный ответ и объяснение</summary>${explanation(q)}</details>`;
 }
 function renderQuiz() {
   if (!session) return catalog();
   if (session.finished) return result();
   const q = questions()[session.index];
   const chosen = session.answers[q.id] || [];
-  main.innerHTML = `<a class="back" href="#home">← К списку тестов (прогресс сохранён)</a><div class="run-head"><div><h1>${escapeHTML(session.title)}</h1><p>${modeName(session.mode)}${session.retry ? ' · работа над ошибками' : ''} · ${session.mode === 'exam' ? 'ответы откроются после сдачи' : 'можно менять ответы без ограничений'}</p></div>${session.mode === 'exam' ? '<div class="timer" id="timer" role="timer" aria-label="Оставшееся время"></div>' : '<span class="practice-label">Без ограничения времени</span>'}</div><div class="progress" aria-label="Доля вопросов с ответом"><div id="progress-fill" style="width:${answeredCount()/session.ids.length*100}%"></div></div><div class="quiz-layout"><section><article class="question-box"><p class="question-meta">Вопрос ${session.index+1} / ${session.ids.length}</p><h2 class="question-text" id="question-title">${escapeHTML(q.text)}</h2><fieldset aria-labelledby="question-title"><legend>${q.type === 'multiple' ? 'Выберите все правильные варианты' : 'Выберите один ответ'}</legend>${q.options.map((opt,i) => `<label class="option ${chosen.includes(i) ? 'selected' : ''}"><input type="${q.type === 'multiple' ? 'checkbox' : 'radio'}" name="answer" value="${i}" ${chosen.includes(i) ? 'checked' : ''}><span class="option-label">${escapeHTML(opt)}</span></label>`).join('')}</fieldset><button class="quiet" data-action="clear">Сбросить ответ на этот вопрос</button><div id="feedback"></div></article><div class="question-actions"><button class="secondary" data-move="-1" ${session.index === 0 ? 'disabled' : ''}>← Назад</button>${session.index === session.ids.length-1 ? '<button data-action="finish">Завершить тест</button>' : '<button data-move="1">Следующий →</button>'}</div></section><aside class="sidebar"><h2>Карта вопросов</h2><p id="answered-label">Отвечено ${answeredCount()} из ${session.ids.length}</p><div class="numbers">${session.ids.map((id,i) => `<button data-index="${i}" aria-label="Вопрос ${i+1}" ${i === session.index ? 'aria-current="step"' : ''} class="${i === session.index ? 'current' : ''} ${session.answers[id]?.length ? 'answered' : ''}">${i+1}</button>`).join('')}</div><p>Зелёный — ответ выбран.<br>Обводка — текущий вопрос.</p><button data-action="finish">Сдать тест</button><p class="history-note">${session.mode === 'exam' ? 'Уход со страницы не останавливает таймер.' : 'Ответы сохраняются в этом браузере.'}</p></aside></div>`;
+  const locked = !!session.confirmed[q.id];
+  main.innerHTML = `<a class="back" href="#home">← К списку тестов (прогресс сохранён)</a><div class="run-head"><div><h1>${escapeHTML(session.title)}</h1><p>${modeName(session.mode)}${session.retry ? ' · работа над ошибками' : ''} · проверка по кнопке «Готово», затем ответ нельзя изменить</p></div>${session.mode === 'exam' ? '<div class="timer" id="timer" role="timer" aria-label="Оставшееся время"></div>' : '<span class="practice-label">Без ограничения времени</span>'}</div><div class="progress" aria-label="Доля вопросов с ответом"><div id="progress-fill" style="width:${answeredCount()/session.ids.length*100}%"></div></div><div class="quiz-layout"><section><article class="question-box ${locked && !isCorrect(q, chosen) ? 'incorrect' : ''}"><p class="question-meta">Вопрос ${session.index+1} / ${session.ids.length}</p><h2 class="question-text" id="question-title">${escapeHTML(q.text)}</h2><fieldset aria-labelledby="question-title" ${locked ? 'disabled' : ''}><legend>${q.type === 'multiple' ? 'Выберите все правильные варианты' : 'Выберите один ответ'}</legend>${q.options.map((opt,i) => `<label class="option ${chosen.includes(i) ? 'selected' : ''}"><input type="${q.type === 'multiple' ? 'checkbox' : 'radio'}" name="answer" value="${i}" ${chosen.includes(i) ? 'checked' : ''}><span class="option-label">${escapeHTML(opt)}</span></label>`).join('')}</fieldset><div class="actions"><button data-action="ready" ${locked || !chosen.length ? 'disabled' : ''}>${locked ? 'Ответ принят' : 'Готово'}</button><button class="quiet" data-action="clear" ${locked ? 'disabled' : ''}>Сбросить ответ на этот вопрос</button></div><div id="feedback"></div></article><div class="question-actions"><button class="secondary" data-move="-1" ${session.index === 0 ? 'disabled' : ''}>← Назад</button>${session.index === session.ids.length-1 ? '<button data-action="finish">Завершить тест</button>' : '<button data-move="1">Следующий →</button>'}</div></section><aside class="sidebar"><h2>Карта вопросов</h2><p id="answered-label">Отвечено ${answeredCount()} из ${session.ids.length}</p><div class="numbers">${session.ids.map((id,i) => `<button data-index="${i}" aria-label="Вопрос ${i+1}" ${i === session.index ? 'aria-current="step"' : ''} class="${i === session.index ? 'current' : ''} ${session.confirmed[id] ? (isCorrect(questionMap.get(id), session.answers[id]) ? 'answered' : 'incorrect') : ''}">${i+1}</button>`).join('')}</div><p>Зелёный — верно, красный — ошибка.<br>Обводка — текущий вопрос.</p><button data-action="finish">Сдать тест</button><p class="history-note">${session.mode === 'exam' ? 'Уход со страницы не останавливает таймер.' : 'Ответы сохраняются в этом браузере.'}</p></aside></div>`;
   feedback(); updateTimer();
 }
 function chooseAnswer() {
   if (!session || session.finished || location.hash !== '#run') return;
   if (expireIfNeeded()) return;
   const q = questions()[session.index];
+  if (session.confirmed[q.id]) return;
   session.answers[q.id] = Array.from(document.querySelectorAll('input[name="answer"]:checked')).map(x => Number(x.value));
   save();
   document.querySelectorAll('.option').forEach(label => label.classList.toggle('selected', label.querySelector('input').checked));
   $('#answered-label').textContent = `Отвечено ${answeredCount()} из ${session.ids.length}`;
   $('#progress-fill').style.width = `${answeredCount()/session.ids.length*100}%`;
-  document.querySelector(`[data-index="${session.index}"]`).classList.toggle('answered', session.answers[q.id].length > 0);
-  feedback();
+  $('[data-action="ready"]').disabled = !session.answers[q.id].length;
 }
+function confirmAnswer() {
+  if (!session || session.finished || location.hash !== '#run' || expireIfNeeded()) return;
+  const q = questions()[session.index];
+  if (session.confirmed[q.id] || !session.answers[q.id]?.length) return;
+  session.confirmed[q.id] = true;
+  save();
+  renderQuiz();
+}
+
 function updateTimer() {
   if (!session || session.mode !== 'exam' || session.finished) return;
   const el = $('#timer'); if (!el) return;
@@ -117,9 +133,10 @@ function expireIfNeeded() {
 }
 function finish(timedOut = false) {
   if (!session || session.finished) return;
+  session.ids.forEach(id => { if (!session.confirmed[id]) delete session.answers[id]; });
   session.finished = true; session.timedOut = timedOut;
   session.finishedAt = timedOut ? session.deadline : Date.now();
-  const correct = questions().filter(q => isCorrect(q, session.answers[q.id])).length;
+  const correct = questions().filter(q => (session.confirmed[q.id] && isCorrect(q, session.answers[q.id]))).length;
   history.push({ testId: session.testId, mode: session.mode, retry: session.retry, percent: Math.round(correct/session.ids.length*100), date: session.finishedAt });
   history = history.slice(-40); save();
   $('#confirm-dialog').close(); showingResultErrors = false;
@@ -128,23 +145,23 @@ function finish(timedOut = false) {
 function confirmFinish() {
   if (expireIfNeeded() || !session || session.finished) return;
   const skipped = session.ids.length - answeredCount();
-  $('#confirm-message').textContent = skipped ? `Без ответа: ${skipped}. Они будут засчитаны как ошибки. После сдачи изменить результат этой попытки нельзя.` : 'Все вопросы отмечены. После сдачи откроется подробный разбор.';
+  $('#confirm-message').textContent = skipped ? `Не подтверждено кнопкой «Готово»: ${skipped}. Они будут засчитаны как ошибки. После сдачи изменить результат этой попытки нельзя.` : 'Все ответы подтверждены. После сдачи откроется подробный разбор.';
   $('#confirm-dialog').returnValue = '';
   $('#confirm-dialog').showModal();
 }
 function result() {
   if (!session?.finished) return catalog();
-  const all = questions(), wrong = all.filter(q => !isCorrect(q, session.answers[q.id]));
+  const all = questions(), wrong = all.filter(q => !(session.confirmed[q.id] && isCorrect(q, session.answers[q.id])));
   const correct = all.length - wrong.length, percent = Math.round(correct/all.length*100);
   const elapsed = Math.max(0, Math.round((session.finishedAt-session.startedAt)/1000));
   const reviewed = showingResultErrors ? wrong : all;
-  main.innerHTML = `<a class="back" href="#home">← К списку тестов</a><p class="eyebrow">${modeName(session.mode)} ${session.mode === 'train' ? 'завершена' : 'завершён'}</p><h2>${escapeHTML(session.title)}</h2><div class="result-hero"><div class="result-score">${percent}%</div><div><h2>${correct} из ${all.length} правильно</h2><p>${session.timedOut ? 'Время истекло. Тест сдан автоматически.' : 'Попытка завершена.'} Время: ${Math.floor(elapsed/60)} мин ${elapsed%60} с.<br>${session.mode === 'train' ? 'Результат учитывает последние ответы после всех исправлений.' : 'Ниже — ваши ответы, правильные варианты и объяснения.'}</p></div></div><div class="actions"><button data-action="retry" ${!wrong.length ? 'disabled' : ''}>Разобрать ошибки · ${wrong.length}</button><button class="secondary" data-action="repeat">Пройти заново</button><button class="secondary" data-action="filter">${showingResultErrors ? 'Показать все вопросы' : 'Показать только ошибки'}</button></div>${all.some(q => q.status === 'Восстановленный ключ') ? '<div class="notice">Ключи сборника восстановлены без официальных ответов. Спорные формулировки отмечены в объяснениях; результат не является официальной оценкой.</div>' : ''}<div class="review-list">${reviewed.map(q => {
+  main.innerHTML = `<a class="back" href="#home">← К списку тестов</a><p class="eyebrow">${modeName(session.mode)} ${session.mode === 'train' ? 'завершена' : 'завершён'}</p><h2>${escapeHTML(session.title)}</h2><div class="result-hero"><div class="result-score">${percent}%</div><div><h2>${correct} из ${all.length} правильно</h2><p>${session.timedOut ? 'Время истекло. Тест сдан автоматически.' : 'Попытка завершена.'} Время: ${Math.floor(elapsed/60)} мин ${elapsed%60} с.<br>${session.mode === 'train' ? 'Результат учитывает только ответы, подтверждённые кнопкой «Готово».' : 'Ниже — ваши ответы, правильные варианты и объяснения.'}</p></div></div><div class="actions"><button data-action="retry" ${!wrong.length ? 'disabled' : ''}>Разобрать ошибки · ${wrong.length}</button><button class="secondary" data-action="repeat">Пройти заново</button><button class="secondary" data-action="filter">${showingResultErrors ? 'Показать все вопросы' : 'Показать только ошибки'}</button></div>${all.some(q => q.status === 'Восстановленный ключ') ? '<div class="notice">Ключи сборника восстановлены без официальных ответов. Спорные формулировки отмечены в объяснениях; результат не является официальной оценкой.</div>' : ''}<div class="review-list">${reviewed.map(q => {
     const selected = session.answers[q.id] || [], ok = isCorrect(q, selected);
     return `<details class="review-item"><summary><span>${all.indexOf(q)+1}. ${ok ? '✓ Правильно' : selected.length ? '✕ Неправильно' : '— Без ответа'}</span>${escapeHTML(q.text)}</summary><ul>${q.options.map((opt,i) => `<li class="${q.answer.includes(i) ? 'correct-choice' : selected.includes(i) ? 'wrong-choice' : ''}">${escapeHTML(opt)} ${selected.includes(i) ? '← ваш выбор' : ''} ${q.answer.includes(i) ? '✓ правильный' : ''}</li>`).join('')}</ul><div class="explanation">${explanation(q)}</div></details>`;
   }).join('') || '<p>Ошибок нет. Можно переходить к следующей теме.</p>'}</div>`;
 }
 function guide() {
-  main.innerHTML = `<article class="guide"><a class="back" href="#home">← К тестам</a><p class="eyebrow">Как устроен практикум</p><h1>Учиться с пониманием.</h1><h2>Два режима для каждого варианта</h2><p><strong>Тренировка:</strong> проверка после каждого изменения выбора. Для нескольких ответов оценивается весь набор. Разбор можно открыть сразу; ответы можно исправлять сколько угодно.</p><p><strong>Экзамен:</strong> ограничение времени, свободное перемещение между вопросами и изменение ответов до сдачи. Правильные варианты и объяснения появляются только после завершения.</p><h2>Оценивание</h2><p>Полностью верный ответ даёт 1 балл, пропуск и неверный набор — 0. Частичных баллов нет. Процент — доля полностью верных ответов. Это упрощённая учебная шкала: в материалах курса встречаются уровни сложности с разными весами.</p><h2>Прогресс и время</h2><p>Ответы, текущий вопрос и последние результаты сохраняются в этом браузере. Можно продолжить после перезагрузки. Открытый экзамен продолжает отсчёт даже при закрытой странице; при возвращении после срока он будет завершён. На другом устройстве прогресса не будет.</p><p>Хранится одна незавершённая попытка. Новая заменяет предыдущую после подтверждения. Работа над ошибками создаёт отдельную тренировку по неверным и пропущенным вопросам.</p><h2>Откуда взяты вопросы</h2><div class="table-scroll"><table><thead><tr><th>Раздел</th><th>Источник и статус</th></tr></thead><tbody><tr><td>Тесты с лекций</td><td>Для скриншотов. Они не были приложены, раздел пока пуст.</td></tr><tr><td>Прошлый год</td><td>Для «вопросы_делком». Этот файл не был приложен.</td></tr><tr><td>Сборник вопросов</td><td>84 задания из «тесты делком без ответов.docx». Ключи восстановлены по лекциям; это не официальный ответ преподавателя.</td></tr><tr><td>Авторские варианты</td><td>64 новых вопроса по восьми блокам лекций. Пробник повторно использует 40 из них.</td></tr></tbody></table></div><p>К каждому вопросу приложены объяснение и номер лекции с указанием страницы или слайда. В сборнике сохранены спорные и оборванные формулировки; замечания показаны в разборе.</p><h2>Материалы курса</h2><ol><li>01 — Введение в деловые коммуникации (PPTX, номера слайдов).</li><li>02 — Влияние, убеждение и активное слушание.</li><li>03 — Каналы, письменное и устное деловое общение.</li><li>04 — Публичные выступления и презентации.</li><li>05 — Команда, конфликты и обратная связь.</li><li>06 — Групповое мышление и коммуникационная стратегия.</li><li>07–08 — Переговоры.</li><li>09 — Кросс-культурная коммуникация.</li></ol><p>Для PDF указаны страницы файла, начиная с первой. В приложенных материалах семинара 1 экзамен описан как 40 вопросов за 40 минут. Общий пробник использует это ограничение времени, но не заявляется точной копией экзамена.</p><h2>Как менять сайт</h2><p>Инструкция с примерами находится в <a href="README.md">README.md</a> внутри архива. Вопросы лежат в папке <code>data</code>, оформление — в <code>styles.css</code>, логика — в <code>app.js</code>. Сайт работает без установки программ и сборки.</p></article>`;
+  main.innerHTML = `<article class="guide"><a class="back" href="#home">← К тестам</a><p class="eyebrow">Как устроен практикум</p><h1>Учиться с пониманием.</h1><h2>Два режима для каждого варианта</h2><p><strong>Тренировка:</strong> выберите один или несколько вариантов и нажмите «Готово». Только после этого ответ проверяется и блокируется. Ошибка отмечается красным, разбор можно открыть после проверки.</p><p><strong>Экзамен:</strong> ограничение времени и проверка по кнопке «Готово», как в тренировке. Подтверждённый ответ нельзя изменить, даже после перехода к другому вопросу или перезагрузки. Неподтверждённые ответы при завершении считаются пропусками.</p><h2>Оценивание</h2><p>Полностью верный ответ даёт 1 балл, пропуск и неверный набор — 0. Частичных баллов нет. Процент — доля полностью верных ответов. Это упрощённая учебная шкала: в материалах курса встречаются уровни сложности с разными весами.</p><h2>Прогресс и время</h2><p>Ответы, текущий вопрос и последние результаты сохраняются в этом браузере. Можно продолжить после перезагрузки. Открытый экзамен продолжает отсчёт даже при закрытой странице; при возвращении после срока он будет завершён. На другом устройстве прогресса не будет.</p><p>Хранится одна незавершённая попытка. Новая заменяет предыдущую после подтверждения. Работа над ошибками создаёт отдельную тренировку по неверным и пропущенным вопросам.</p><h2>Откуда взяты вопросы</h2><div class="table-scroll"><table><thead><tr><th>Раздел</th><th>Источник и статус</th></tr></thead><tbody><tr><td>Тесты с лекций</td><td>Для скриншотов. Они не были приложены, раздел пока пуст.</td></tr><tr><td>Прошлый год</td><td>Для «вопросы_делком». Этот файл не был приложен.</td></tr><tr><td>Сборник вопросов</td><td>84 задания из «тесты делком без ответов.docx». Ключи восстановлены по лекциям; это не официальный ответ преподавателя.</td></tr><tr><td>Авторские варианты</td><td>64 новых вопроса по восьми блокам лекций. Пробник повторно использует 40 из них.</td></tr></tbody></table></div><p>К каждому вопросу приложены объяснение и номер лекции с указанием страницы или слайда. В сборнике сохранены спорные и оборванные формулировки; замечания показаны в разборе.</p><h2>Материалы курса</h2><ol><li>01 — Введение в деловые коммуникации (PPTX, номера слайдов).</li><li>02 — Влияние, убеждение и активное слушание.</li><li>03 — Каналы, письменное и устное деловое общение.</li><li>04 — Публичные выступления и презентации.</li><li>05 — Команда, конфликты и обратная связь.</li><li>06 — Групповое мышление и коммуникационная стратегия.</li><li>07–08 — Переговоры.</li><li>09 — Кросс-культурная коммуникация.</li></ol><p>Для PDF указаны страницы файла, начиная с первой. В приложенных материалах семинара 1 экзамен описан как 40 вопросов за 40 минут. Общий пробник использует это ограничение времени, но не заявляется точной копией экзамена.</p><h2>Как менять сайт</h2><p>Инструкция с примерами находится в <a href="README.md">README.md</a> внутри архива. Вопросы лежат в папке <code>data</code>, оформление — в <code>styles.css</code>, логика — в <code>app.js</code>. Сайт работает без установки программ и сборки.</p></article>`;
 }
 function notFound() { main.innerHTML = '<h2>Такой страницы нет</h2><p><a href="#home">Открыть список тестов</a></p>'; }
 function render() {
@@ -169,11 +186,12 @@ main.addEventListener('click', event => {
   }
   switch (button.dataset.action) {
     case 'resume': linkTo('#run'); break;
-    case 'clear': if (!session || session.finished || expireIfNeeded()) return; document.querySelectorAll('input[name="answer"]').forEach(el => el.checked = false); chooseAnswer(); break;
+    case 'ready': confirmAnswer(); break;
+    case 'clear': if (!session || session.finished || expireIfNeeded() || session.confirmed[session.ids[session.index]]) return; document.querySelectorAll('input[name="answer"]').forEach(el => el.checked = false); chooseAnswer(); break;
     case 'finish': confirmFinish(); break;
     case 'filter': showingResultErrors = !showingResultErrors; result(); break;
     case 'repeat': linkTo('#test/'+encodeURIComponent(session.testId)); break;
-    case 'retry': { const ids = questions().filter(q => !isCorrect(q, session.answers[q.id])).map(q => q.id); if (ids.length) start(session.testId,'train',ids); break; }
+    case 'retry': { const ids = questions().filter(q => !(session.confirmed[q.id] && isCorrect(q, session.answers[q.id]))).map(q => q.id); if (ids.length) start(session.testId,'train',ids); break; }
   }
 });
 $('#confirm-dialog').addEventListener('close', () => { if ($('#confirm-dialog').returnValue === 'finish') finish(); });

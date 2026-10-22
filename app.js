@@ -22,6 +22,10 @@ function storageWarning() { storageOK = false; $('#storage-warning').hidden = fa
 function readStorage() { try { return JSON.parse(localStorage.getItem(storageKey)) || {}; } catch { storageWarning(); return {}; } }
 const saved = readStorage();
 let history = Array.isArray(saved.history) ? saved.history.slice(-40) : [];
+const completedTests = new Set([
+  ...(Array.isArray(saved.completedTests) ? saved.completedTests.filter(id => typeof id === 'string') : []),
+  ...history.filter(entry => !entry.retry).map(entry => entry.testId)
+]);
 let session = saved.session || null;
 let showingResultErrors = false;
 function validSession(s) {
@@ -38,7 +42,7 @@ if (session) {
   ).map(id => [id, true]));
 }
 function save() {
-  try { localStorage.setItem(storageKey, JSON.stringify({ session, history })); }
+  try { localStorage.setItem(storageKey, JSON.stringify({ session, history, completedTests: [...completedTests] })); }
   catch { storageWarning(); }
 }
 function isCorrect(q, selected = []) {
@@ -54,7 +58,8 @@ function nav(category) {
 function bestResult(id) { return history.filter(x => x.testId === id && !x.retry && x.mode === 'exam').sort((a,b) => b.percent - a.percent)[0]; }
 function card(test, index) {
   const best = bestResult(test.id);
-  return `<article class="card ${test.id === 'mock-40' ? 'featured' : ''}"><div class="card-top"><span class="tag">${categories[test.category]?.[0] || 'Тест'}</span><span class="card-number">${String(index+1).padStart(2,'0')}</span></div><h3>${escapeHTML(test.title)}</h3><p>${escapeHTML(test.description || '')}</p>${best ? `<span class="badge">Лучший экзамен: ${best.percent}%</span>` : ''}<div class="card-bottom"><span class="card-meta">${questionCount(test.questions.length)} · ${test.minutes} мин</span><a href="#test/${encodeURIComponent(test.id)}" aria-label="Открыть: ${escapeHTML(test.title)}">Начать ↗</a></div></article>`;
+  const completed = completedTests.has(test.id);
+  return `<article class="card ${test.id === 'mock-40' ? 'featured' : ''}"><div class="card-top"><span class="tag">${categories[test.category]?.[0] || 'Тест'}</span><span class="card-number">${String(index+1).padStart(2,'0')}</span></div><h3>${escapeHTML(test.title)}</h3>${completed ? '<span class="badge completed-test"><span aria-hidden="true">✓</span> Выполнен</span>' : ''}<p>${escapeHTML(test.description || '')}</p>${best ? `<span class="badge">Лучший экзамен: ${best.percent}%</span>` : ''}<div class="card-bottom"><span class="card-meta">${questionCount(test.questions.length)} · ${test.minutes} мин</span><a href="#test/${encodeURIComponent(test.id)}" aria-label="Открыть: ${escapeHTML(test.title)}">Начать ↗</a></div></article>`;
 }
 function catalog(category = 'all') {
   const listed = tests.filter(t => category === 'all' || t.category === category);
@@ -137,6 +142,7 @@ function finish(timedOut = false) {
   session.finished = true; session.timedOut = timedOut;
   session.finishedAt = timedOut ? session.deadline : Date.now();
   const correct = questions().filter(q => (session.confirmed[q.id] && isCorrect(q, session.answers[q.id]))).length;
+  if (!session.retry) completedTests.add(session.testId);
   history.push({ testId: session.testId, mode: session.mode, retry: session.retry, percent: Math.round(correct/session.ids.length*100), date: session.finishedAt });
   history = history.slice(-40); save();
   $('#confirm-dialog').close(); showingResultErrors = false;

@@ -6,3 +6,5 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
 .question-box.incorrect{border-color:var(--red);background:#fff5f2}.numbers button.incorrect{background:#f7d9d3;border-color:var(--red);color:var(--red)}.question-box fieldset:disabled .option{cursor:default}.question-box fieldset:disabled .option:hover{background:transparent}.question-box fieldset:disabled .option.selected{background:#eef4e7}.question-box>.actions{margin-top:16px}
+
+.completed-test{align-self:flex-start;background:#dbeab8;color:#244c41;font-weight:700}.completed-test span{margin-right:4px}

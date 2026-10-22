@@ -22,10 +22,21 @@ function storageWarning() { storageOK = false; $('#storage-warning').hidden = fa
 function readStorage() { try { return JSON.parse(localStorage.getItem(storageKey)) || {}; } catch { storageWarning(); return {}; } }
 const saved = readStorage();
 let history = Array.isArray(saved.history) ? saved.history.slice(-40) : [];
-const completedTests = new Set([
-  ...(Array.isArray(saved.completedTests) ? saved.completedTests.filter(id => typeof id === 'string') : []),
-  ...history.filter(entry => !entry.retry).map(entry => entry.testId)
-]);
+const testResults = new Map(
+  Array.isArray(saved.testResults) ? saved.testResults.filter(entry =>
+    Array.isArray(entry) && typeof entry[0] === 'string' && Number.isInteger(entry[1]) && entry[1] >= 0
+  ) : []
+);
+// Recover the latest full attempt from older saves; partial retries do not replace it.
+for (const entry of history) {
+  const test = tests.find(test => test.id === entry.testId);
+  if (!entry.retry && test && !testResults.has(entry.testId)) {
+    const latest = history.filter(item => item.testId === entry.testId && !item.retry).at(-1);
+    if (Number.isFinite(latest.percent)) {
+      testResults.set(entry.testId, Math.round(test.questions.length * (100 - latest.percent) / 100));
+    }
+  }
+}
 let session = saved.session || null;
 let showingResultErrors = false;
 function validSession(s) {
@@ -42,7 +53,7 @@ if (session) {
   ).map(id => [id, true]));
 }
 function save() {
-  try { localStorage.setItem(storageKey, JSON.stringify({ session, history, completedTests: [...completedTests] })); }
+  try { localStorage.setItem(storageKey, JSON.stringify({ session, history, testResults: [...testResults] })); }
   catch { storageWarning(); }
 }
 function isCorrect(q, selected = []) {
@@ -58,8 +69,8 @@ function nav(category) {
 function bestResult(id) { return history.filter(x => x.testId === id && !x.retry && x.mode === 'exam').sort((a,b) => b.percent - a.percent)[0]; }
 function card(test, index) {
   const best = bestResult(test.id);
-  const completed = completedTests.has(test.id);
-  return `<article class="card ${test.id === 'mock-40' ? 'featured' : ''}"><div class="card-top"><span class="tag">${categories[test.category]?.[0] || 'Тест'}</span><span class="card-number">${String(index+1).padStart(2,'0')}</span></div><h3>${escapeHTML(test.title)}</h3>${completed ? '<span class="badge completed-test"><span aria-hidden="true">✓</span> Выполнен</span>' : ''}<p>${escapeHTML(test.description || '')}</p>${best ? `<span class="badge">Лучший экзамен: ${best.percent}%</span>` : ''}<div class="card-bottom"><span class="card-meta">${questionCount(test.questions.length)} · ${test.minutes} мин</span><a href="#test/${encodeURIComponent(test.id)}" aria-label="Открыть: ${escapeHTML(test.title)}">Начать ↗</a></div></article>`;
+  const errors = testResults.get(test.id);
+  return `<article class="card ${test.id === 'mock-40' ? 'featured' : ''}"><div class="card-top"><span class="tag">${categories[test.category]?.[0] || 'Тест'}</span><span class="card-number">${String(index+1).padStart(2,'0')}</span></div><h3>${escapeHTML(test.title)}</h3>${errors === 0 ? '<span class="badge completed-test"><span aria-hidden="true">✓</span> Выполнен</span>' : errors > 0 ? `<span class="badge test-errors">${errors} ${countWord(errors, ['ошибка', 'ошибки', 'ошибок'])}</span>` : ''}<p>${escapeHTML(test.description || '')}</p>${best ? `<span class="badge">Лучший экзамен: ${best.percent}%</span>` : ''}<div class="card-bottom"><span class="card-meta">${questionCount(test.questions.length)} · ${test.minutes} мин</span><a href="#test/${encodeURIComponent(test.id)}" aria-label="Открыть: ${escapeHTML(test.title)}">Начать ↗</a></div></article>`;
 }
 function catalog(category = 'all') {
   const listed = tests.filter(t => category === 'all' || t.category === category);
@@ -142,7 +153,7 @@ function finish(timedOut = false) {
   session.finished = true; session.timedOut = timedOut;
   session.finishedAt = timedOut ? session.deadline : Date.now();
   const correct = questions().filter(q => (session.confirmed[q.id] && isCorrect(q, session.answers[q.id]))).length;
-  if (!session.retry) completedTests.add(session.testId);
+  if (!session.retry) testResults.set(session.testId, session.ids.length - correct);
   history.push({ testId: session.testId, mode: session.mode, retry: session.retry, percent: Math.round(correct/session.ids.length*100), date: session.finishedAt });
   history = history.slice(-40); save();
   $('#confirm-dialog').close(); showingResultErrors = false;

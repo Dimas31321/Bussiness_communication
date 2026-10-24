@@ -94,3 +94,42 @@ p+p {
   padding-left: 36px;
   padding-right: 36px;
 }
+
+/* Удобные для касания элементы на телефонах и планшетах. */
+@media (max-width: 900px) and (pointer: coarse) {
+  .numbers {
+    grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  }
+
+  .numbers button,
+  .quiet,
+  .card a,
+  .header-link {
+    min-height: 44px;
+  }
+
+  .card a,
+  .header-link {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .question-actions {
+    flex-wrap: wrap;
+  }
+
+  .option {
+    min-height: 48px;
+  }
+
+  .option-label,
+  .run-head > div:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  dialog {
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+  }
+}

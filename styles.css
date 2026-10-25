@@ -10,3 +10,44 @@
 .completed-test{align-self:flex-start;background:#dbeab8;color:#244c41;font-weight:700}.completed-test span{margin-right:4px}
 
 .test-errors{align-self:flex-start;background:#fbefeb;color:var(--red);font-weight:700}
+
+/* Удобные для касания элементы на телефонах и планшетах. */
+@media (max-width: 900px) and (pointer: coarse) {
+  .numbers {
+    grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  }
+
+  .numbers button,
+  .quiet,
+  .card a,
+  .header-link {
+    min-height: 44px;
+  }
+
+  .card a,
+  .header-link {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .question-actions {
+    flex-wrap: wrap;
+  }
+
+  .option {
+    min-height: 48px;
+  }
+
+  .option-label,
+  .run-head > div:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  dialog {
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+  }
+}
+
+.open-answer-label{display:block;margin:20px 0 8px;font-weight:600}#open-answer{display:block;width:100%;max-width:100%;font:inherit;padding:14px;border:1px solid var(--line);border-radius:10px;resize:vertical}#open-answer:focus-visible{outline:3px solid #b47b21;outline-offset:3px}.open-model{white-space:pre-line}

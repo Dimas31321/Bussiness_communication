@@ -133,3 +133,5 @@ p+p {
     overflow-y: auto;
   }
 }
+
+.open-answer-label{display:block;margin:20px 0 8px;font-weight:600}#open-answer{display:block;width:100%;max-width:100%;font:inherit;padding:14px;border:1px solid var(--line);border-radius:10px;resize:vertical}#open-answer:focus-visible{outline:3px solid #b47b21;outline-offset:3px}.open-model{white-space:pre-line}

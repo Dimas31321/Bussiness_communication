@@ -66,6 +66,13 @@ function save() {
 function isCorrect(q, selected = []) {
   return selected.length === q.answer.length && q.answer.every(n => selected.includes(n));
 }
+function questionPoints(q) { return q.points || 1; }
+function earnedPoints(q) {
+  if (!session.confirmed[q.id]) return 0;
+  const selected = session.answers[q.id] || [];
+  if (q.type === 'open' && q.optionPoints) return q.optionPoints[selected[0]] || 0;
+  return isCorrect(q, selected) ? questionPoints(q) : 0;
+}
 function answeredCount() { return session.ids.filter(id => session.confirmed[id]).length; }
 function questions() { return session.ids.map(id => questionMap.get(id)); }
 function modeName(mode) { return mode === 'exam' ? 'Экзамен' : 'Тренировка'; }
@@ -94,7 +101,7 @@ function catalog(category = 'all') {
 function detail(id) {
   const test = tests.find(t => t.id === id);
   if (!test) return notFound();
-  main.innerHTML = `<section class="detail"><a class="back" href="#section/${test.category}">← К вариантам</a><p class="eyebrow">${categories[test.category]?.[0] || 'Практикум'} · ${questionCount(test.questions.length)}</p><h1>${escapeHTML(test.title)}</h1><p class="lead">${escapeHTML(test.description || '')}</p><div class="modes"><article class="mode"><span class="tag">01 / В своём темпе</span><h2>Тренировка</h2><p>Выберите ответ и нажмите «Готово» для проверки. После проверки ответ нельзя изменить. Без таймера.</p><button data-start="${escapeHTML(test.id)}" data-mode="train">Начать тренировку</button></article><article class="mode exam"><span class="tag">02 / Проверка знаний</span><h2>Экзамен</h2><p>${test.minutes} минут на весь вариант. Проверка каждого задания — по кнопке «Готово». После проверки ответ нельзя изменить. По окончании времени тест сдаётся автоматически.</p><button data-start="${escapeHTML(test.id)}" data-mode="exam">Начать экзамен · ${test.minutes} мин</button></article></div><div class="notice">Один балл за полностью правильный ответ. В заданиях с несколькими вариантами нужно выбрать все правильные и ни одного лишнего. Пропуск — 0 баллов. Это учебная шкала, не официальная оценка курса.</div>${session && !session.finished ? '<p class="history-note">Новая попытка заменит текущую незавершённую. Её можно продолжить с главной страницы.</p>' : ''}</section>`;
+  main.innerHTML = `<section class="detail"><a class="back" href="#section/${test.category}">← К вариантам</a><p class="eyebrow">${categories[test.category]?.[0] || 'Практикум'} · ${questionCount(test.questions.length)}</p><h1>${escapeHTML(test.title)}</h1><p class="lead">${escapeHTML(test.description || '')}</p><div class="modes"><article class="mode"><span class="tag">01 / В своём темпе</span><h2>Тренировка</h2><p>Выберите ответ и нажмите «Готово» для проверки. После проверки ответ нельзя изменить. Без таймера.</p><button data-start="${escapeHTML(test.id)}" data-mode="train">Начать тренировку</button></article><article class="mode exam"><span class="tag">02 / Проверка знаний</span><h2>Экзамен</h2><p>${test.minutes} минут на весь вариант. Проверка каждого задания — по кнопке «Готово». После проверки ответ нельзя изменить. По окончании времени тест сдаётся автоматически.</p><button data-start="${escapeHTML(test.id)}" data-mode="exam">Начать экзамен · ${test.minutes} мин</button></article></div><div class="notice">${test.questions.some(q => q.points) ? 'Максимум 64 балла: задания 1–20 — по 1, 21–36 — по 2, 37–40 — по 3. Открытые ответы оцениваются самостоятельно от 0 до 3 по критериям. Закрытый ответ приносит баллы только при полном совпадении.' : 'Один балл за полностью правильный ответ.'} В заданиях с несколькими вариантами нужно выбрать все правильные и ни одного лишнего. Пропуск — 0 баллов. Это учебная шкала, не официальная оценка курса.</div>${session && !session.finished ? '<p class="history-note">Новая попытка заменит текущую незавершённую. Её можно продолжить с главной страницы.</p>' : ''}</section>`;
 }
 function start(testId, mode, ids = null) {
   const test = tests.find(t => t.id === testId);
@@ -129,19 +136,22 @@ function feedback() {
   const target = $('#feedback'); if (!target) return;
   target.replaceChildren();
   if (q.type === 'open' && session.openSubmitted[q.id] && !session.confirmed[q.id]) {
-    target.append(
-      element('div', { class: 'explanation open-model' }, element('h3', {}, 'Образец ответа'), element('p', {}, q.explanation)),
-      element('p', { class: 'history-note' }, 'Сравните свой ответ с образцом и оцените его. После оценки изменить результат нельзя.'),
-      element('div', { class: 'actions' },
-        element('button', { 'data-action': 'self-correct' }, 'Мой ответ верный'),
-        element('button', { class: 'secondary', 'data-action': 'self-wrong' }, 'Есть ошибки или пропуски')));
+    const actions = element('div', { class: 'actions' });
+    if (q.optionPoints) {
+      q.options.forEach((label, index) => actions.append(element('button', { 'data-action': 'self-score', 'data-score-index': index }, label)));
+    } else {
+      actions.append(element('button', { 'data-action': 'self-correct' }, 'Мой ответ верный'),
+        element('button', { class: 'secondary', 'data-action': 'self-wrong' }, 'Есть ошибки или пропуски'));
+    }
+    target.append(element('div', { class: 'explanation open-model' }, element('h3', {}, 'Образец ответа'), element('p', {}, q.explanation)),
+      element('p', { class: 'history-note' }, 'Сравните свой ответ с образцом и оцените его. После оценки изменить результат нельзя.'), actions);
     return;
   }
   if (!session.confirmed[q.id]) return;
   const correct = isCorrect(q, selected);
   target.append(
     element('div', { class: `feedback ${correct ? 'good' : 'bad'}`, role: 'status' },
-      (correct ? '✓ Правильно' : '✕ Неправильно') + (q.type === 'multiple' ? ' — проверяется весь набор.' : '.') + ' Ответ зафиксирован, изменить его нельзя.'),
+      (q.optionPoints ? `Самопроверка: ${earnedPoints(q)} из ${questionPoints(q)} баллов` : correct ? '✓ Правильно' : '✕ Неправильно') + (q.type === 'multiple' ? ' — проверяется весь набор.' : '.') + ' Ответ зафиксирован, изменить его нельзя.'),
     element('details', { class: 'explanation' }, element('summary', {}, 'Показать правильный ответ и объяснение'), explanationNode(q)));
 }
 function renderQuiz() {
@@ -241,7 +251,7 @@ function finish(timedOut = false) {
   session.finishedAt = timedOut ? session.deadline : Date.now();
   const correct = questions().filter(q => (session.confirmed[q.id] && isCorrect(q, session.answers[q.id]))).length;
   if (!session.retry) testResults.set(session.testId, session.ids.length - correct);
-  history.push({ testId: session.testId, mode: session.mode, retry: session.retry, percent: Math.round(correct/session.ids.length*100), date: session.finishedAt });
+  history.push({ testId: session.testId, mode: session.mode, retry: session.retry, percent: Math.round(questions().reduce((sum, q) => sum + earnedPoints(q), 0) / questions().reduce((sum, q) => sum + questionPoints(q), 0) * 100), date: session.finishedAt });
   history = history.slice(-40); save();
   $('#confirm-dialog').close(); showingResultErrors = false;
   if (location.hash === '#run') result();
@@ -256,7 +266,10 @@ function confirmFinish() {
 function result() {
   if (!session?.finished) return catalog();
   const all = questions(), wrong = all.filter(q => !(session.confirmed[q.id] && isCorrect(q, session.answers[q.id])));
-  const correct = all.length - wrong.length, percent = Math.round(correct / all.length * 100);
+  const correct = all.length - wrong.length;
+  const totalPoints = all.reduce((sum, q) => sum + questionPoints(q), 0);
+  const scoredPoints = all.reduce((sum, q) => sum + earnedPoints(q), 0);
+  const percent = Math.round(scoredPoints / totalPoints * 100);
   const elapsed = Math.max(0, Math.round((session.finishedAt - session.startedAt) / 1000));
   const reviewed = showingResultErrors ? wrong : all;
   const review = element('div', { class: 'review-list' });
@@ -279,7 +292,7 @@ function result() {
     element('p', { class: 'eyebrow' }, `${modeName(session.mode)} ${session.mode === 'train' ? 'завершена' : 'завершён'}`),
     element('h2', {}, session.title),
     element('div', { class: 'result-hero' }, element('div', { class: 'result-score' }, `${percent}%`),
-      element('div', {}, element('h2', {}, `${correct} из ${all.length} правильно`),
+      element('div', {}, element('h2', {}, totalPoints !== all.length ? `${scoredPoints} из ${totalPoints} баллов · ${correct} из ${all.length} без ошибок` : `${correct} из ${all.length} правильно`),
         element('p', {}, `${session.timedOut ? 'Время истекло. Тест сдан автоматически.' : 'Попытка завершена.'} Время: ${Math.floor(elapsed / 60)} мин ${elapsed % 60} с.`,
           element('br'), session.mode === 'train' ? 'Результат учитывает только ответы, подтверждённые кнопкой «Готово».' : 'Ниже — ваши ответы, правильные варианты и объяснения.'))),
     element('div', { class: 'actions' },
@@ -322,12 +335,15 @@ main.addEventListener('click', event => {
   }
   switch (button.dataset.action) {
     case 'resume': linkTo('#run'); break;
+    case 'self-score':
     case 'self-correct':
     case 'self-wrong': {
       if (!session || session.finished || expireIfNeeded()) return;
       const q = questions()[session.index];
       if (q.type !== 'open' || !session.openSubmitted[q.id] || session.confirmed[q.id]) return;
-      session.answers[q.id] = [button.dataset.action === 'self-correct' ? 0 : 1];
+      const index = button.dataset.action === 'self-score' ? Number(button.dataset.scoreIndex) : button.dataset.action === 'self-correct' ? 0 : 1;
+      if (!Number.isInteger(index) || index < 0 || index >= q.options.length || (button.dataset.action === 'self-score' && !q.optionPoints)) return;
+      session.answers[q.id] = [index];
       session.confirmed[q.id] = true;
       save(); renderQuiz(); break;
     }
